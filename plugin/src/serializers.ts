@@ -67,6 +67,64 @@ export const getBounds = (node: any) => {
   return undefined;
 };
 
+const serializeRect = (rect: any) =>
+  rect
+    ? {
+        x: pixelRound(rect.x),
+        y: pixelRound(rect.y),
+        width: pixelRound(rect.width),
+        height: pixelRound(rect.height),
+      }
+    : undefined;
+
+const sameRect = (a: any, b: any) =>
+  a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+
+// Canvas placement and compositing, with defaults omitted to keep large trees
+// small. absoluteRenderBounds (which includes shadows, blurs and outside
+// strokes) is only reported when it differs from absoluteBoundingBox, and
+// constraints only when they are not the LEFT/TOP default (MIN/MIN).
+export const serializeLayout = (node: any) => {
+  const layout: any = {};
+
+  const box = serializeRect(node.absoluteBoundingBox);
+  if (box) {
+    layout.absoluteBoundingBox = box;
+    const render = serializeRect(node.absoluteRenderBounds);
+    if (render && !sameRect(box, render)) layout.absoluteRenderBounds = render;
+  }
+
+  if (node.constraints) {
+    const { horizontal, vertical } = node.constraints;
+    if (horizontal !== "MIN" || vertical !== "MIN") {
+      layout.constraints = { horizontal, vertical };
+    }
+  }
+
+  if (node.rotation) layout.rotation = pixelRound(node.rotation);
+  if (node.visible === false) layout.visible = false;
+  if (node.opacity != null && node.opacity !== 1) layout.opacity = node.opacity;
+  if (node.blendMode && node.blendMode !== "PASS_THROUGH" && node.blendMode !== "NORMAL") {
+    layout.blendMode = node.blendMode;
+  }
+  if (node.clipsContent === true) layout.clipsContent = true;
+
+  return layout;
+};
+
+const serializeStrokeWeight = (node: any) => {
+  if (!isMixed(node.strokeWeight)) return node.strokeWeight;
+  if ("strokeTopWeight" in node) {
+    return {
+      top: node.strokeTopWeight,
+      right: node.strokeRightWeight,
+      bottom: node.strokeBottomWeight,
+      left: node.strokeLeftWeight,
+    };
+  }
+  return "mixed";
+};
+
 const serializeRgba = (color: any) => {
   if (!color || typeof color !== "object") return undefined;
   const hex = toHex(color);
@@ -137,6 +195,10 @@ export const serializeStyles = async (node: any) => {
     }
     const strokes = serializePaints(node.strokes);
     if (strokes !== undefined) styles.strokes = strokes;
+    if (isMixed(node.strokes) || (Array.isArray(node.strokes) && node.strokes.length > 0)) {
+      if ("strokeWeight" in node) styles.strokeWeight = serializeStrokeWeight(node);
+      if (node.strokeAlign) styles.strokeAlign = node.strokeAlign;
+    }
   }
 
   if ("cornerRadius" in node) {
@@ -216,6 +278,13 @@ export const serializeText = async (node: any, base: any) => {
       textAlignHorizontal: isMixed(node.textAlignHorizontal)
         ? "mixed"
         : node.textAlignHorizontal,
+      textAlignVertical: node.textAlignVertical,
+      textAutoResize: node.textAutoResize,
+      textCase: isMixed(node.textCase)
+        ? "mixed"
+        : node.textCase && node.textCase !== "ORIGINAL"
+          ? node.textCase
+          : undefined,
     }),
   });
 };
@@ -231,6 +300,7 @@ export const serializeNode = async (node: any, depth = Infinity): Promise<any> =
     name: node.name,
     type: node.type,
     bounds: getBounds(node),
+    ...serializeLayout(node),
     styles,
   };
   if (node.type === "TEXT") return serializeText(node, base);

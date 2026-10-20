@@ -12,6 +12,7 @@ import {
   serializeText,
   serializeNode,
   serializeEffects,
+  serializeLayout,
   clearStyleCache,
 } from "./serializers";
 
@@ -550,6 +551,113 @@ describe("serializeText", () => {
     };
     const result = await serializeText(node, makeBase());
     expect(result.styles.textDecoration).toBe("UNDERLINE");
+  });
+
+  it("includes vertical alignment, auto-resize and a non-default text case", async () => {
+    const node = {
+      fontName: { family: "Inter", style: "Regular" },
+      fontSize: 14,
+      textAlignHorizontal: "CENTER",
+      textAlignVertical: "CENTER",
+      textAutoResize: "WIDTH_AND_HEIGHT",
+      textCase: "UPPER",
+      characters: "hello",
+    };
+    const result = await serializeText(node, makeBase());
+    expect(result.styles.textAlignVertical).toBe("CENTER");
+    expect(result.styles.textAutoResize).toBe("WIDTH_AND_HEIGHT");
+    expect(result.styles.textCase).toBe("UPPER");
+  });
+
+  it("omits the ORIGINAL text case", async () => {
+    const node = { fontName: { family: "Inter", style: "Regular" }, textCase: "ORIGINAL", characters: "hi" };
+    const result = await serializeText(node, makeBase());
+    expect(result.styles.textCase).toBeUndefined();
+  });
+});
+
+// ── serializeLayout ───────────────────────────────────────────────────────────
+
+describe("serializeLayout", () => {
+  const box = { x: 10, y: 20, width: 100, height: 50 };
+
+  it("returns an empty object for a node without layout properties", () => {
+    expect(serializeLayout({ id: "1" })).toEqual({});
+  });
+
+  it("omits defaults and render bounds equal to the bounding box", () => {
+    const node = {
+      absoluteBoundingBox: box,
+      absoluteRenderBounds: { ...box },
+      constraints: { horizontal: "MIN", vertical: "MIN" },
+      rotation: 0,
+      visible: true,
+      opacity: 1,
+      blendMode: "PASS_THROUGH",
+      clipsContent: false,
+    };
+    expect(serializeLayout(node)).toEqual({ absoluteBoundingBox: box });
+  });
+
+  it("reports render bounds that include effects", () => {
+    const node = {
+      absoluteBoundingBox: box,
+      absoluteRenderBounds: { x: -16, y: -6, width: 152.0000001, height: 102 },
+    };
+    expect(serializeLayout(node).absoluteRenderBounds).toEqual({ x: -16, y: -6, width: 152, height: 102 });
+  });
+
+  it("skips render bounds for a node that renders nothing", () => {
+    const node = { absoluteBoundingBox: box, absoluteRenderBounds: null };
+    expect(serializeLayout(node)).toEqual({ absoluteBoundingBox: box });
+  });
+
+  it("includes non-default constraints, rotation, visibility, opacity, blend mode and clipping", () => {
+    const node = {
+      constraints: { horizontal: "MAX", vertical: "CENTER" },
+      rotation: -12.000001,
+      visible: false,
+      opacity: 0.5,
+      blendMode: "MULTIPLY",
+      clipsContent: true,
+    };
+    expect(serializeLayout(node)).toEqual({
+      constraints: { horizontal: "MAX", vertical: "CENTER" },
+      rotation: -12,
+      visible: false,
+      opacity: 0.5,
+      blendMode: "MULTIPLY",
+      clipsContent: true,
+    });
+  });
+});
+
+describe("serializeStyles stroke weight", () => {
+  const stroke = [{ type: "SOLID", color: { r: 0, g: 0, b: 0 } }];
+
+  it("includes the weight and alignment when the node has strokes", async () => {
+    const result = await serializeStyles({ strokes: stroke, strokeWeight: 3, strokeAlign: "OUTSIDE" });
+    expect(result.strokeWeight).toBe(3);
+    expect(result.strokeAlign).toBe("OUTSIDE");
+  });
+
+  it("reports per-side weights when they differ", async () => {
+    const result = await serializeStyles({
+      strokes: stroke,
+      strokeWeight: Symbol(),
+      strokeTopWeight: 1,
+      strokeRightWeight: 2,
+      strokeBottomWeight: 3,
+      strokeLeftWeight: 4,
+      strokeAlign: "INSIDE",
+    });
+    expect(result.strokeWeight).toEqual({ top: 1, right: 2, bottom: 3, left: 4 });
+  });
+
+  it("omits the weight when there are no strokes", async () => {
+    const result = await serializeStyles({ strokes: [], strokeWeight: 1, strokeAlign: "INSIDE" });
+    expect(result.strokeWeight).toBeUndefined();
+    expect(result.strokeAlign).toBeUndefined();
   });
 });
 
